@@ -1,6 +1,5 @@
 import os
 import json
-import logging
 import requests
 from datetime import datetime, timedelta
 from typing import Dict, Optional
@@ -9,22 +8,18 @@ from dotenv import load_dotenv
 from utils import (
     get_openai_client,
     format_prompt,
-    validate_required_env_vars
+    validate_required_env_vars,
+    setup_logging,
+    get_spotify_headers,
+    handle_api_error,
+    SPOTIFY_PODCASTERS_API
 )
 
 # Load environment variables
 load_dotenv()
 
 # Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('analytics.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__, 'analytics.log')
 
 # Validate required environment variables
 validate_required_env_vars([
@@ -37,35 +32,6 @@ validate_required_env_vars([
 # API Configuration
 MAILCHIMP_API_KEY = os.getenv('MAILCHIMP_API_KEY')
 MAILCHIMP_DC = MAILCHIMP_API_KEY.split('-')[-1]
-SPOTIFY_CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')
-SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET')
-
-# Spotify API endpoints
-SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token'
-SPOTIFY_API_BASE = 'https://api.spotify.com/v1'
-SPOTIFY_PODCASTERS_API = 'https://api.spotify.com/v1/podcasters'
-
-def get_spotify_access_token() -> str:
-    """
-    Get Spotify access token using client credentials flow.
-    
-    Returns:
-        str: Access token for Spotify API
-    """
-    try:
-        response = requests.post(
-            SPOTIFY_TOKEN_URL,
-            data={
-                'grant_type': 'client_credentials',
-                'client_id': SPOTIFY_CLIENT_ID,
-                'client_secret': SPOTIFY_CLIENT_SECRET
-            }
-        )
-        response.raise_for_status()
-        return response.json()['access_token']
-    except Exception as e:
-        logger.error(f"Error getting Spotify access token: {str(e)}")
-        raise
 
 def get_mailchimp_report(campaign_id: str) -> Dict:
     """
@@ -99,20 +65,12 @@ def get_mailchimp_report(campaign_id: str) -> Dict:
                 for click in report_data.get('clicks', {}).get('clicks', [])[:5]
             ]
         }
-    except requests.exceptions.RequestException as e:
-        logger.error(f"API error fetching Mailchimp report: {str(e)}")
-        return {
-            'open_rate': 0,
-            'clicks_per_unique_open': 0,
-            'top_links': []
-        }
     except Exception as e:
-        logger.error(f"Error fetching Mailchimp report: {str(e)}")
-        return {
+        return handle_api_error(e, logger, {
             'open_rate': 0,
             'clicks_per_unique_open': 0,
             'top_links': []
-        }
+        })
 
 def get_spotify_stats(episode_id: str) -> Dict:
     """
@@ -125,17 +83,10 @@ def get_spotify_stats(episode_id: str) -> Dict:
         Dictionary containing episode metrics
     """
     try:
-        # Get access token
-        access_token = get_spotify_access_token()
-        headers = {
-            'Authorization': f'Bearer {access_token}',
-            'Content-Type': 'application/json'
-        }
-        
         # Fetch episode analytics
         response = requests.get(
             f'{SPOTIFY_PODCASTERS_API}/episodes/{episode_id}/analytics',
-            headers=headers,
+            headers=get_spotify_headers(),
             params={
                 'start_date': (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d'),
                 'end_date': datetime.now().strftime('%Y-%m-%d'),
@@ -152,22 +103,13 @@ def get_spotify_stats(episode_id: str) -> Dict:
             'completion_rate': stats_data.get('completion_rate', 0),
             'avg_listen_duration': stats_data.get('avg_listen_duration', 0)
         }
-    except requests.exceptions.RequestException as e:
-        logger.error(f"API error fetching Spotify for Podcasters stats: {str(e)}")
-        return {
-            'listeners': 0,
-            'plays': 0,
-            'completion_rate': 0,
-            'avg_listen_duration': 0
-        }
     except Exception as e:
-        logger.error(f"Error fetching Spotify for Podcasters stats: {str(e)}")
-        return {
+        return handle_api_error(e, logger, {
             'listeners': 0,
             'plays': 0,
             'completion_rate': 0,
             'avg_listen_duration': 0
-        }
+        })
 
 def summarize_insights(analytics_data: Dict) -> str:
     """
@@ -209,8 +151,7 @@ Write only the summary paragraph.""",
         
         return response.choices[0].message.content.strip()
     except Exception as e:
-        logger.error(f"Error generating insights summary: {str(e)}")
-        return "Unable to generate performance insights at this time."
+        return handle_api_error(e, logger, "Unable to generate performance insights at this time.")
 
 def run_analysis() -> Optional[str]:
     """
@@ -260,8 +201,7 @@ def run_analysis() -> Optional[str]:
         return summarize_insights(analytics_data)
         
     except Exception as e:
-        logger.error(f"Error in analytics workflow: {str(e)}")
-        return None
+        return handle_api_error(e, logger, None)
 
 if __name__ == '__main__':
     # Test the analytics workflow
