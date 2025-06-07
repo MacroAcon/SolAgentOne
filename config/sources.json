@@ -1,0 +1,12 @@
+{
+  "rss_feeds": [
+    "https://github.com/modelcontextprotocol/mcp-spec/releases.atom",
+    "https://github.com/modelcontextprotocol/mcp-go/releases.atom",
+    "https://openai.com/blog/rss.xml",
+    "http://feeds.arstechnica.com/arstechnica/index",
+    "https://www.anthropic.com/blog/rss.xml",
+    "https://blog.google/technology/ai/rss/",
+    "https://www.microsoft.com/en-us/ai/blog/rss",
+    "https://aws.amazon.com/blogs/machine-learning/feed/"
+  ]
+}
